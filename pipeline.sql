@@ -100,6 +100,19 @@ WHERE
 GROUP BY drug_concept_id
 
 @transform_pandas(
+    Output(rid="ri.foundry.main.dataset.f0863e05-e4c7-45d2-aeab-e2d930515b48"),
+    concept_set_members=Input(rid="ri.foundry.main.dataset.e670c5ad-42ca-46a2-ae55-e917e3e161b6")
+)
+/* Pull the concept_ids for our concept set of Carbapenems / Aminoglycoside antibiotics */ 
+
+SELECT
+    concept_id
+FROM concept_set_members
+WHERE 
+    codeset_id = 192654943 
+    AND is_most_recent_version = TRUE
+
+@transform_pandas(
     Output(rid="ri.foundry.main.dataset.f9ae6e03-c975-4f18-8296-7a96c11aa177"),
     Drugs_Labelled_By_Person_And_Day=Input(rid="ri.foundry.main.dataset.6691ab77-c551-40d2-bed8-2215733bdd4b")
 )
@@ -141,10 +154,9 @@ SELECT
     drug_concept_id
     , MAX(drug_concept_name) AS drug_concept_name
     , COUNT(*) AS occurence_count
-FROM Exposures_By_Day
+FROM Early_Antibiotic_Exposures_Mapped_to_Routes
 WHERE
-    (route_concept_id IS NULL OR route_missing)
-    AND (NOT is_enteral AND NOT is_parenteral)
+    NOT is_enteral AND NOT is_parenteral
 GROUP BY drug_concept_id
 ORDER BY COUNT(*) DESC
 
@@ -199,7 +211,7 @@ SELECT
         -- Drug name looks like a enteral product
         WHEN LOWER(drug_concept_name) LIKE '%oral%' OR LOWER(drug_concept_name) like '%tablet%' OR LOWER(drug_concept_name) LIKE '%capsule%' THEN true
         -- This is a manual list of drugs that fell through the critera above but are typically enteral
-        WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1734104,1738521,1707164,1742253,997881,35861919,45774861,1742287,35151057) THEN true
+        WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1734104,1738521,1707164,1742253,997881,35861919,1742287,35151057) THEN true
     ELSE false END AS is_enteral
     , CASE
         -- The route is directly mapped
@@ -210,7 +222,7 @@ SELECT
         -- Drug name looks like a parenteral product
         WHEN LOWER(drug_concept_name) LIKE '%injectable%' OR LOWER(drug_concept_name) like '%injection%' OR LOWER(drug_concept_name) like '%syringe%' THEN true
         -- same as above but parenteral
-        WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1736887,1836241,46274210,36789702,45774861,46221507) THEN true
+        WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1736887,1836241,46274210,36789702,45774861, 46221507) THEN true
     ELSE false END AS is_parenteral
 FROM Early_Antibiotic_Exposures
 LEFT JOIN Concept_Routes_of_Interest ON
@@ -313,12 +325,20 @@ GROUP BY
     Early_Severity_Of_Illness=Input(rid="ri.foundry.main.dataset.2d5fcd77-d8b8-40e7-be82-c98a6ac86124"),
     Exposures_Summary=Input(rid="ri.foundry.main.dataset.c15035f7-be8f-4165-a3c5-9308a69367a2"),
     First_WBC_For_Hospitalization=Input(rid="ri.foundry.main.dataset.f1c75948-9178-4d4e-9b5c-9487df60c2fa"),
+    cohort_early_trauma=Input(rid="ri.foundry.main.dataset.42dbc43a-9113-4825-8b43-95271f025617"),
+    early_major_procedures=Input(rid="ri.foundry.main.dataset.747d8ac9-2111-4264-907e-55803519c4df"),
+    early_vasopressor_use=Input(rid="ri.foundry.main.dataset.146d250a-2c0a-4f60-96a3-127c2e997921"),
+    late_cdad_events=Input(rid="ri.foundry.main.dataset.67915386-a9aa-4acd-a102-fe48b0732349"),
+    late_exposures=Input(rid="ri.foundry.main.dataset.8dd53f10-c6ba-4d1b-96f4-d1a230417f30"),
+    long_imv_episodes=Input(rid="ri.foundry.main.dataset.af740c1b-0152-4654-83b9-40f1494781f9"),
+    trauma_observations=Input(rid="ri.foundry.main.dataset.839bb5cd-c1d2-4f56-a107-a412d5b408d8"),
     zipprefix_to_state=Input(rid="ri.foundry.main.dataset.16cb2b8d-b1b6-480b-83b7-31a5bba5f3af")
 )
 -- Merge the interim dataframes into a main analysis data frame. 
 
 SELECT
     data_partner_id
+    , person_id
     , age_at_covid
     , gender_concept_name
     , race_ethnicity
@@ -375,11 +395,26 @@ SELECT
     , CASE WHEN Exposures_Summary.any_days_to_day_5 > 3 THEN 1 ELSE 0 END AS outcome_any_day5
     , CASE WHEN Exposures_Summary.parenteral_days_to_day_4 > 4 THEN 1 ELSE 0 END AS outcome_iv_day4
     , CASE WHEN Exposures_Summary.any_days_to_day_4 > 4 THEN 1 ELSE 0 END AS outcome_any_day4
+    , COALESCE(cohort_early_trauma.trauma_count, 0) AS early_trauma_dx_count
+    , COALESCE(trauma_observations.trauma_observation_count, 0) AS early_trauma_obs_count
+    , CASE WHEN trauma_count > 0 THEN 1 WHEN trauma_observation_count > 0 THEN 1 ELSE 0 END AS early_trauma_flag
+    , CASE WHEN late_exposure_count > 0 THEN 1 ELSE 0 END AS late_antibiotic_exposure
+    , CASE WHEN long_imv_episodes.imv_episode_count > 0 THEN 1 ELSE 0 END AS long_imv
+    , CASE WHEN early_major_procedure_count > 0 THEN 1 ELSE 0 END AS early_major_procedure
+    , CASE WHEN early_vasopressor_use.early_vasopressor_use > 0 THEN 1 ELSE 0 END AS early_vasopressor_use
+    , CASE WHEN late_cdad_events.cdad_onset IS NOT NULL THEN 1 ELSE 0 END AS late_cdad
 FROM Base_Cohort
 LEFT JOIN Exposures_Summary USING (person_id)
 LEFT JOIN Early_Procalcitonin_During_Hospitalization USING (person_id)
 LEFT JOIN Early_Severity_Of_Illness USING (person_id)
 LEFT JOIN First_WBC_For_Hospitalization USING (person_id)
+LEFT JOIN cohort_early_trauma USING (person_id)
+LEFT JOIN trauma_observations USING (person_id)
+LEFT JOIN late_exposures USING (person_id)
+LEFT JOIN long_imv_episodes USING (person_id)
+LEFT JOIN early_major_procedures USING (person_id)
+LEFT JOIN early_vasopressor_use USING (person_id)
+LEFT JOIN late_cdad_events USING (person_id)
 LEFT JOIN zipprefix_to_state ON
     SUBSTR(postal_code, 0, 3) = zipprefix_to_state.prefix
 
@@ -417,10 +452,19 @@ SELECT
     , early_imv
     , early_ecmo
     , hospital_mortality
+    , long_imv
+    , late_antibiotic_exposure
+    , late_cdad
+    , INT(early_trauma_dx_count)
+    , INT(early_trauma_obs_count)
+    , early_trauma_flag
+    , early_major_procedure
+    , early_vasopressor_use
+    , CASE WHEN long_imv = 1 OR hospital_mortality = 1 THEN 1 ELSE 0 END AS primary_outcome
 FROM Final_Analysis_Cohort
 WHERE
     reporting_period >= '2020-03-01'
-    AND reporting_period < '2022-01-01'
+    AND reporting_period < '2022-07-01'
     AND data_partner_id IN (SELECT data_partner_id FROM Data_Partner_Statistics WHERE record_count > 500)
 
 @transform_pandas(
@@ -497,6 +541,7 @@ SELECT
     , total_length_of_stay
     , pct_group
     , early_imv
+    , early_vasopressor_use
     , early_ecmo
     , CAST(any_days_to_day_4 AS INTEGER) AS any_days_to_day_4
     , CAST(any_days_to_day_5 AS INTEGER) AS any_days_to_day_5
@@ -511,13 +556,269 @@ WHERE
     AND data_partner_id IN (SELECT data_partner_id FROM Data_Partner_Statistics WHERE record_count > 500)
 
 @transform_pandas(
-    Output(rid="ri.vector.main.execute.51de5e03-2f96-42ba-acf2-0c0383a2c73c"),
+    Output(rid="ri.foundry.main.dataset.42dbc43a-9113-4825-8b43-95271f025617"),
+    Snomed_concepts_for_ccsr_injury_groups=Input(rid="ri.foundry.main.dataset.1b0b658a-60d0-4b1a-aa02-21cf0e0cf652"),
+    early_cohort_conditions=Input(rid="ri.foundry.main.dataset.feb06255-fcd7-47c0-b8cc-0838e017b12b")
+)
+SELECT
+    early_cohort_conditions.person_id
+    , COUNT(*) AS trauma_count
+FROM early_cohort_conditions
+INNER JOIN Snomed_concepts_for_ccsr_injury_groups ON early_cohort_conditions.condition_concept_id = Snomed_concepts_for_ccsr_injury_groups.concept_id
+GROUP BY early_cohort_conditions.person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.ec512fa9-a0fb-4941-b9bd-7aac64c507a5"),
+    early_cohort_conditions=Input(rid="ri.foundry.main.dataset.feb06255-fcd7-47c0-b8cc-0838e017b12b")
+)
+SELECT
+    condition_concept_id
+    , MIN(condition_concept_name) AS condition_concept_name
+    , COUNT(*) AS occurence_count
+FROM early_cohort_conditions
+GROUP BY condition_concept_id
+ORDER BY COUNT(*) DESC
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.63730b1b-1bc4-4b78-aca1-b79c67626458"),
+    Data_Partner_Statistics=Input(rid="ri.foundry.main.dataset.b8883699-ff6d-404c-9b1d-bb05eafe80e1")
+)
+SELECT COUNT(*) FROM Data_Partner_Statistics WHERE record_count > 500
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.7fb192db-a18c-4a1a-b47e-1a5e84d6b836"),
+    concept_set_members=Input(rid="ri.foundry.main.dataset.e670c5ad-42ca-46a2-ae55-e917e3e161b6")
+)
+/* Pull the concept_ids for vasopressor exposure */ 
+
+SELECT
+    concept_id
+FROM concept_set_members
+WHERE 
+    codeset_id = 593515761 
+    AND is_most_recent_version = TRUE
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.feb06255-fcd7-47c0-b8cc-0838e017b12b"),
+    Base_Cohort=Input(rid="ri.foundry.main.dataset.f80c5b44-af52-42a2-b276-48c355fe97b4"),
+    condition_occurrence=Input(rid="ri.foundry.main.dataset.900fa2ad-87ea-4285-be30-c6b5bab60e86")
+)
+SELECT
+    condition_occurrence.*
+FROM Base_Cohort
+INNER JOIN condition_occurrence USING (person_id)
+WHERE
+    condition_start_date BETWEEN date_add(first_COVID_hospitalization_start_date, -2) AND date_add(first_COVID_hospitalization_start_date, 7)
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.747d8ac9-2111-4264-907e-55803519c4df"),
+    Concepts_major_procedures=Input(rid="ri.foundry.main.dataset.3464b010-7b0f-468f-89ea-76cfc97701d5"),
+    covid_facts=Input(rid="ri.foundry.main.dataset.75d7da57-7b0e-462c-b41d-c9ef4f756198"),
+    procedure_occurrence=Input(rid="ri.foundry.main.dataset.f6f0b5e0-a105-403a-a98f-0ee1c78137dc")
+)
+SELECT
+    procedure_occurrence.person_id
+    , COUNT(*) AS early_major_procedure_count
+FROM procedure_occurrence
+INNER JOIN covid_facts ON
+    procedure_occurrence.person_id = covid_facts.person_id
+    AND procedure_occurrence.procedure_date BETWEEN covid_facts.first_COVID_hospitalization_start_date AND date_add(covid_facts.first_COVID_hospitalization_start_date, 2)
+INNER JOIN Concepts_major_procedures ON
+    procedure_occurrence.procedure_concept_id = Concepts_major_procedures.concept_id
+GROUP BY procedure_occurrence.person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.2300db27-86f0-4492-9811-dec4ce1007a1"),
+    Cohort_Hospitalization_Dates=Input(rid="ri.foundry.main.dataset.b47d8fe1-8c03-4e38-9b24-24a327b6d8fd"),
+    drug_exposure=Input(rid="ri.foundry.main.dataset.ec252b05-8f82-4f7f-a227-b3bb9bc578ef"),
+    drugs_vasopressors=Input(rid="ri.foundry.main.dataset.7fb192db-a18c-4a1a-b47e-1a5e84d6b836")
+)
+-- Take filtered drug exposures (vasopressors) and link them to the hospital days 
+
+SELECT
+    drug_exposure.person_id
+    , drug_exposure.drug_exposure_start_date
+    , drug_exposure.drug_exposure_end_date
+    , drug_exposure.drug_concept_id
+    , drug_exposure.drug_concept_name
+    , drug_exposure.route_concept_id
+    , Cohort_Hospitalization_Dates.hospital_day
+FROM drug_exposure
+/* Filter All Drug Exposures to Just vasopressors */
+INNER JOIN drugs_vasopressors ON
+    drug_exposure.drug_concept_id = drugs_vasopressors.concept_id
+/* Filter all antibiotics to just exposures to our cohort during our period of interest */
+INNER JOIN Cohort_Hospitalization_Dates ON
+    Cohort_Hospitalization_Dates.person_id = drug_exposure.person_id
+    AND (
+        /* If end_date is null then keep this row if it equals on of our hospital days of interest */
+        (drug_exposure.drug_exposure_end_date IS NULL AND drug_exposure.drug_exposure_start_date = Cohort_Hospitalization_Dates.date)
+        /* Otherwise keep if date between start and end) */
+        OR (Cohort_Hospitalization_Dates.date >= drug_exposure.drug_exposure_start_date AND Cohort_Hospitalization_Dates.date <= drug_exposure.drug_exposure_end_date)
+    )
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.146d250a-2c0a-4f60-96a3-127c2e997921"),
+    early_vasopressor_exposures=Input(rid="ri.foundry.main.dataset.2300db27-86f0-4492-9811-dec4ce1007a1")
+)
+SELECT
+    person_id
+    , COUNT(*) AS early_vasopressor_use
+FROM early_vasopressor_exposures
+WHERE
+    hospital_day < 2
+GROUP BY person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.ed505bad-5610-4e1f-911e-7ebb308b9c9f"),
+    Severity_Of_Illness_By_Day=Input(rid="ri.foundry.main.dataset.2872658a-3c84-4e21-9bb3-ab0e749f98b8")
+)
+WITH flagged_rows AS (
+    SELECT
+        person_id
+        , hospital_day
+        , CASE WHEN hospital_day - LAG(hospital_day, 1, -100) OVER (PARTITION BY person_id ORDER BY hospital_day ASC) < 3 THEN 0 ELSE 1 END AS flag
+    FROM Severity_Of_Illness_By_Day
+    WHERE imv > 0
+), sequenced_rows AS (
+    SELECT
+        person_id
+        , hospital_day
+        , SUM(flag) OVER (PARTITION BY person_id ORDER BY hospital_day ASC) AS sequence_no
+    FROM
+        flagged_rows
+)
+SELECT
+    person_id
+    , sequence_no
+    , COUNT(*) AS length
+FROM
+    sequenced_rows
+GROUP BY person_id, sequence_no
+ORDER BY person_id, sequence_no ASC
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.67915386-a9aa-4acd-a102-fe48b0732349"),
+    late_conditions=Input(rid="ri.foundry.main.dataset.4527e9a5-5da6-407f-8448-0497cd16c3fe")
+)
+SELECT
+    person_id
+    , MIN(condition_start_date) AS cdad_onset
+FROM late_conditions
+WHERE
+    condition_concept_id IN (193688,1326482,1326483,1403028,1403029,3154244,3157127,3157136,3182508,3302715,3333447,3344537,3399378,4217284,4225690,4265457,4307981,35205420,37312146,40565482,42483658,44826288,45436339,45436856,45436861,45450116,45552153,45763575)
+GROUP BY person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.4527e9a5-5da6-407f-8448-0497cd16c3fe"),
+    Base_Cohort=Input(rid="ri.foundry.main.dataset.f80c5b44-af52-42a2-b276-48c355fe97b4"),
+    condition_occurrence=Input(rid="ri.foundry.main.dataset.900fa2ad-87ea-4285-be30-c6b5bab60e86")
+)
+SELECT
+    condition_occurrence.*
+FROM Base_Cohort
+INNER JOIN condition_occurrence USING (person_id)
+WHERE
+    condition_start_date > date_add(first_COVID_hospitalization_start_date, 7)
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.8dd53f10-c6ba-4d1b-96f4-d1a230417f30"),
+    Base_Cohort=Input(rid="ri.foundry.main.dataset.f80c5b44-af52-42a2-b276-48c355fe97b4"),
+    Drugs_Extended_Spectrum=Input(rid="ri.foundry.main.dataset.f0863e05-e4c7-45d2-aeab-e2d930515b48"),
+    drug_exposure=Input(rid="ri.foundry.main.dataset.ec252b05-8f82-4f7f-a227-b3bb9bc578ef")
+)
+SELECT
+    Base_Cohort.person_id
+    , COUNT(*) AS late_exposure_count
+FROM drug_exposure
+INNER JOIN Drugs_Extended_Spectrum ON drug_exposure.drug_concept_id = Drugs_Extended_Spectrum.concept_id
+INNER JOIN Base_Cohort ON Base_Cohort.person_id = drug_exposure.person_id
+WHERE
+    drug_exposure_start_date BETWEEN first_COVID_hospitalization_start_date AND first_COVID_hospitalization_end_date
+    AND DATEDIFF(drug_exposure_start_date, Base_Cohort.first_COVID_hospitalization_start_date) > 7
+GROUP BY Base_Cohort.person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.af740c1b-0152-4654-83b9-40f1494781f9"),
+    imv_episodes=Input(rid="ri.foundry.main.dataset.ed505bad-5610-4e1f-911e-7ebb308b9c9f")
+)
+SELECT
+    person_id
+    , COUNT(*) as imv_episode_count
+FROM imv_episodes
+WHERE
+    length >= 14
+GROUP BY person_id
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.fdc07676-09e5-4255-b806-5c7cd864bbe7"),
+    Final_Analysis_Cohort=Input(rid="ri.foundry.main.dataset.b6368e45-75aa-407a-aaaf-e4a9724ae9ac")
+)
+SELECT
+    reporting_period
+    , COUNT(*) AS cnt
+FROM Final_Analysis_Cohort
+GROUP BY reporting_period
+ORDER BY reporting_period DESC
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.7c1cdb50-ad87-447a-9cc5-1e5fc066ad83"),
     Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
 )
 -- count the number of exposed patients for the textual results
-SELECT COUNT(*)
+SELECT
+    AVG(target) AS target
+    , SUM(target) AS total_target
+    , AVG(long_imv) AS long_imv
+    , AVG(early_ecmo) AS early_ecmo
+    , AVG(early_imv) AS early_imv
+    , AVG(early_vasopressor_use) AS early_vasopressor_use
 FROM Final_Analysis_Cohort_With_Exclusions
-WHERE target = 1
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.839bb5cd-c1d2-4f56-a107-a412d5b408d8"),
+    Base_Cohort=Input(rid="ri.foundry.main.dataset.f80c5b44-af52-42a2-b276-48c355fe97b4"),
+    Snomed_concepts_for_ccsr_injury_groups=Input(rid="ri.foundry.main.dataset.1b0b658a-60d0-4b1a-aa02-21cf0e0cf652"),
+    observation=Input(rid="ri.foundry.main.dataset.b998b475-b229-471c-800e-9421491409f3")
+)
+SELECT
+    observation.person_id
+    , COUNT(*) AS trauma_observation_count
+FROM observation
+INNER JOIN Base_Cohort USING (person_id)
+INNER JOIN Snomed_concepts_for_ccsr_injury_groups ON
+    observation.observation_concept_id = Snomed_concepts_for_ccsr_injury_groups.concept_id
+WHERE
+    observation.observation_date BETWEEN Base_Cohort.first_COVID_hospitalization_start_date AND DATE_ADD(Base_Cohort.first_COVID_hospitalization_start_date, 7)
+GROUP BY observation.person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.5edadd75-fba2-4b64-8efb-24295c37cdbf"),
+    Base_Cohort=Input(rid="ri.foundry.main.dataset.f80c5b44-af52-42a2-b276-48c355fe97b4"),
+    concept=Input(rid="ri.foundry.main.dataset.5cb3c4a3-327a-47bf-a8bf-daf0cafe6772"),
+    early_cohort_conditions=Input(rid="ri.foundry.main.dataset.feb06255-fcd7-47c0-b8cc-0838e017b12b")
+)
+WITH visit_conditions AS (
+    SELECT DISTINCT
+        person_id
+        , condition_concept_id
+    FROM early_cohort_conditions
+)
+
+SELECT
+    condition_concept_id
+    , MIN(concept_name) AS concept_name
+    , COUNT(*) AS case_count
+    , AVG(LL_ECMO_during_covid_hospitalization_indicator) AS ecmo_rate
+    , AVG(LL_IMV_during_covid_hospitalization_indicator) AS imv_rate
+    , AVG(REMDISIVIR_during_covid_hospitalization_indicator) AS remdisivir_rate
+    , AVG(COVIDREGIMENCORTICOSTEROIDS_during_covid_hospitalization_indicator) AS steroid_rate
+FROM
+    visit_conditions
+LEFT JOIN Base_Cohort USING (person_id)
+LEFT JOIN concept ON condition_concept_id = concept.concept_id
+GROUP BY condition_concept_id
+ORDER BY COUNT(*) DESC
 
 @transform_pandas(
     Output(rid="ri.foundry.main.dataset.16cb2b8d-b1b6-480b-83b7-31a5bba5f3af"),

@@ -1,25 +1,87 @@
 library(tidyverse)
-library(patchwork)
 
 @transform_pandas(
     Output(rid="ri.vector.main.execute.97b2c02d-6cb2-4f5f-9f4a-114c68a79177"),
     Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
 )
+library(patchwork)
+
 explore_figure_severity <- function(Final_Analysis_Cohort_With_Exclusions) {
-    ## This was an exploratory figure about EEAU by severity of illness and PCT measure. It was not included in the final paper
 
-    df <- Final_Analysis_Cohort_With_Exclusions %>% mutate(pct_group = as_factor(pct_group), early_imv = as_factor(early_imv == 1), early_ecmo = as_factor(early_ecmo == 1))
+    df <- Final_Analysis_Cohort_With_Exclusions %>%
+                mutate(pct_group = as_factor(pct_group),
+                        early_imv = as_factor(early_imv == 1),
+                        early_ecmo = as_factor(early_ecmo == 1),
+                        early_vasopressor_use = as_factor(early_vasopressor_use == 1),
+                        early_surgery = as_factor(early_major_procedure == 1),
+                        early_trauma = as_factor(early_trauma_flag == 1))
 
-    display_df <- df %>% group_by(pct_group, reporting_period) %>% summarise(count = n(), avg = mean(target))
-    p1 <- ggplot(display_df, aes(reporting_period, avg, color=pct_group)) + geom_line()
+    display_df <- df %>%
+        group_by(early_imv, reporting_period) %>%
+        summarise(count = n(), avg = mean(target))
 
-    display_df <- df %>% group_by(early_imv, reporting_period) %>% summarise(count = n(), avg = mean(target))
-    p2 <- ggplot(display_df, aes(reporting_period, avg, color=early_imv)) + geom_line()
+    p2 <- ggplot(display_df, aes(reporting_period, avg, color=early_imv)) +
+            geom_line() + 
+            scale_x_datetime(date_labels = "%Y-%m") + 
+            scale_y_continuous(labels = scales::label_percent()) +
+            scale_color_manual(values = c("TRUE" = "blue", "FALSE" = "red"), labels = c("TRUE" = "Present", "FALSE" = "Absent")) + 
+            theme_bw() + 
+            theme(legend.position="bottom") + 
+            labs(x = "Month", y = "% of Admissions with EEAU", color="IMV")
 
     display_df <- df %>% group_by(early_ecmo, reporting_period) %>% summarise(count = n(), avg = mean(target))
-    p3 <- ggplot(display_df, aes(reporting_period, avg, color=early_ecmo)) + geom_line()
+    p3 <- ggplot(display_df, aes(reporting_period, avg, color=early_ecmo)) +
+            geom_line() +
+            scale_x_datetime(date_labels = "%Y-%m") + 
+            scale_y_continuous(labels = scales::label_percent()) + 
+            scale_color_manual(values = c("TRUE" = "blue", "FALSE" = "red"), labels = c("TRUE" = "Present", "FALSE" = "Absent")) + 
+            theme_bw() + 
+            theme(legend.position="bottom") + 
+            labs(x = "Month", y = "% of Admissions with EEAU", color="ECMO")
 
-    print(p1 / (p2 + p3))
+    display_df <- df %>% group_by(early_surgery, reporting_period) %>% summarise(count = n(), avg = mean(target))
+    p4 <- ggplot(display_df, aes(reporting_period, avg, color=early_surgery)) +
+            geom_line() + 
+            scale_x_datetime(date_labels = "%Y-%m") + 
+            scale_y_continuous(labels = scales::label_percent()) + 
+            scale_color_manual(values = c("TRUE" = "blue", "FALSE" = "red"), labels = c("TRUE" = "Present", "FALSE" = "Absent")) + 
+            theme_bw() + 
+            theme(legend.position="bottom") + 
+            labs(x = "Month", y = "% of Admissions with EEAU", color="Surgery")
+
+    display_df <- df %>% group_by(early_trauma, reporting_period) %>% summarise(count = n(), avg = mean(target))
+    p5 <- ggplot(display_df, aes(reporting_period, avg, color=early_trauma)) +
+            geom_line() + 
+            scale_x_datetime(date_labels = "%Y-%m") + 
+            scale_y_continuous(labels = scales::label_percent()) + 
+            scale_color_manual(values = c("TRUE" = "blue", "FALSE" = "red"), labels = c("TRUE" = "Present", "FALSE" = "Absent")) + 
+            theme_bw() + 
+            theme(legend.position="bottom") + 
+            labs(x = "Month", y = "% of Admissions with EEAU", color="Trauma")
+
+    display_df <- df %>% group_by(early_vasopressor_use, reporting_period) %>% summarise(count = n(), avg = mean(target))
+    p6 <- ggplot(display_df, aes(reporting_period, avg, color=early_vasopressor_use)) +
+            geom_line() + 
+            scale_x_datetime(date_labels = "%Y-%m") + 
+            scale_y_continuous(labels = scales::label_percent()) + 
+            scale_color_manual(values = c("TRUE" = "blue", "FALSE" = "red"), labels = c("TRUE" = "Present", "FALSE" = "Absent")) + 
+            theme_bw() + 
+            theme(legend.position="bottom") + 
+            labs(x = "Month", y = "% of Admissions with EEAU", color="Early Vasopressors")
+
+    display_df <- df %>% group_by(pct_group, reporting_period) %>% summarise(count = n(), avg = mean(target))
+    p7 <- ggplot(display_df, aes(reporting_period, avg, color=pct_group)) +
+            geom_line() + 
+            scale_x_datetime(date_labels = "%Y-%m") + 
+            scale_y_continuous(labels = scales::label_percent()) + 
+            theme_bw() + 
+            theme(legend.position="bottom") + 
+            labs(x = "Month", y = "% of Admissions with EEAU", color="PCT")
+        
+    #image: svg
+    fig <- (p2 + p3) / (p4 + p5) / (p6 + p7)
+
+    print(fig)
 
     return(NULL)
 }   
@@ -37,10 +99,140 @@ explore_rates_by_month_overall <- function(Final_Analysis_Cohort_With_Exclusions
 }
 
 @transform_pandas(
+    Output(rid="ri.vector.main.execute.7eb84399-e702-4733-a5d4-35ffdc2644b8"),
+    Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
+)
+fig_condition_prevalence <- function(Final_Analysis_Cohort_With_Exclusions) {
+    df <- Final_Analysis_Cohort_With_Exclusions %>%
+        #mutate(reporting_period = as.character(reporting_period) %>% str_remove("-..$") %>% as.factor()) %>%
+        group_by(reporting_period) %>%
+        summarise(n = n(), early_ecmo = mean(early_ecmo), early_imv = mean(early_imv), early_trauma = mean(early_trauma_flag), early_surgery = mean(early_major_procedure), late_antibiotic_exposure = mean(late_antibiotic_exposure), long_imv = mean(long_imv))
+
+    print(df)
+        
+    #scale_x_discrete(guide = guide_axis(n.dodge = 2)) + 
+
+    # p1 <- ggplot(df) +
+    #     geom_line(aes(reporting_period, early_ecmo)) +
+    #     scale_x_datetime(date_labels = "%Y-%m") + 
+    #     scale_y_continuous(labels = scales::label_percent()) + 
+    #     theme_bw() + 
+    #     labs(x = "Month", y = "% of Admissions with Early ECMO Use")
+    
+    # p2 <- ggplot(df) +
+    #     geom_line(aes(reporting_period, early_imv)) +
+    #     scale_x_datetime(date_labels = "%Y-%m") + 
+    #     scale_y_continuous(labels = scales::label_percent()) + 
+    #     theme_bw() + 
+    #     labs(x = "Month", y = "% of Admissions with Early IMV Use")
+
+    # p3 <- ggplot(df) +
+    #     geom_line(aes(reporting_period, early_trauma)) + 
+    #     scale_x_datetime(date_labels = "%Y-%m") + 
+    #     scale_y_continuous(labels = scales::label_percent()) + 
+    #     theme_bw() + 
+    #     labs(x = "Month", y = "% of Admissions with Trauma")
+
+    # p4 <- ggplot(df) +
+    #     geom_line(aes(reporting_period, late_antibiotic_exposure)) +
+    #     scale_x_datetime(date_labels = "%Y-%m") + 
+    #     scale_y_continuous(labels = scales::label_percent()) + 
+    #     theme_bw() + 
+    #     labs(x = "Month", y = "% of Admissions with Late Extended Spectrum Anitbiotic Exposure")
+
+    # p5 <- ggplot(df) +
+    #     geom_line(aes(reporting_period, long_imv)) + 
+    #     scale_x_datetime(date_labels = "%Y-%m") + 
+    #     scale_y_continuous(labels = scales::label_percent()) + 
+    #     theme_bw() + 
+    #     labs(x = "Month", y = "% of Admissions with Prolonged IMV")
+
+    # p6 <- ggplot(df) +
+    #     geom_line(aes(reporting_period, early_surgery)) +
+    #     scale_x_datetime(date_labels = "%Y-%m") + 
+    #     scale_y_continuous(labels = scales::label_percent()) + 
+    #     theme_bw() + 
+    #     labs(x = "Month", y = "% of Admissions with Early Surgery")
+
+    # print((p1 + p2 + p3) / (p4 + p5 + p6))
+
+    p1 <- ggplot(df) +
+        geom_line(aes(reporting_period, early_ecmo), color = "blue") +
+        scale_x_datetime(date_labels = "%Y-%m") + 
+        scale_y_continuous(labels = scales::label_percent()) + 
+        theme_bw() + 
+        labs(x = "Month", y = "% of Admissions with Early ECMO Use")
+
+    print(p1)
+    
+    return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.849c7d9f-bdf9-40c1-8ac5-8177c69eb857"),
+    Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
+)
+figure_trends <- function(Final_Analysis_Cohort_With_Exclusions) {
+    df <- Final_Analysis_Cohort_With_Exclusions %>%
+        group_by(reporting_period) %>%
+        summarise(early_ecmo = mean(early_ecmo), early_imv = mean(early_imv), early_trauma = mean(early_trauma_flag), early_surgery = mean(early_major_procedure), early_vasopressor_use = mean(early_vasopressor_use))  %>%
+        pivot_longer(!reporting_period, names_to = "metric", values_to = "rate") %>%
+        mutate(metric = case_when(
+            metric == "early_ecmo" ~ "ECMO",
+            metric == "early_imv" ~ "IMV",
+            metric == "early_trauma" ~ "Trauma",
+            metric == "early_surgery" ~ "Surgery",
+            metric == "early_vasopressor_use" ~ "Vasopressor Use", 
+            TRUE ~ metric
+        ))
+
+    
+    p1 <- ggplot(df, aes(x = reporting_period, y = rate, color = metric)) +
+        geom_line()  + 
+        scale_x_datetime(date_labels = "%Y-%m") + 
+        scale_y_continuous(labels = scales::label_percent()) + 
+        theme_bw() + 
+        labs(x = "Month", y = "% of Admissions", color="Early Condition")
+
+    #image: svg
+    print(p1)
+
+    return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.49835047-d81c-4200-8d14-44faec86091a"),
+    Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
+)
+library(lubridate)
+library(mgcv)
+library(broom)
+
+iptw_test_preds <- function(Final_Analysis_Cohort_With_Exclusions) {
+
+    df <- Final_Analysis_Cohort_With_Exclusions %>%
+        select(data_partner_id:reporting_period, target, early_imv:late_antibiotic_exposure, early_trauma_flag, early_major_procedure, late_cdad, early_vasopressor_use) %>%
+        mutate(
+            data_partner_id = as_factor(data_partner_id), 
+            gender_concept_name = as_factor(gender_concept_name) %>% fct_explicit_na(),
+            reporting_period = as_factor(year(reporting_period) * 12 + month(reporting_period) - (2020*12+3)),
+            race_ethnicity = as_factor(race_ethnicity)
+        )
+
+    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + early_vasopressor_use + early_trauma_flag + early_major_procedure + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
+
+    df$pred <- predict(m, newdata=df)
+
+    return(df)
+}
+
+@transform_pandas(
     Output(rid="ri.vector.main.execute.2268fa48-551e-43d8-972c-a9a7b345d959"),
     Drugs_Labelled_By_Hospital_Day=Input(rid="ri.foundry.main.dataset.f9ae6e03-c975-4f18-8296-7a96c11aa177"),
     Figure_Data_By_Center=Input(rid="ri.foundry.main.dataset.582aaae3-361a-459b-94dd-ba5fe47ee5b9")
 )
+library(patchwork)
+
 letter_figure_1 <- function(Figure_Data_By_Center, Drugs_Labelled_By_Hospital_Day) {
 
     ## this builds the figure 1 for the publication
@@ -48,8 +240,8 @@ letter_figure_1 <- function(Figure_Data_By_Center, Drugs_Labelled_By_Hospital_Da
         mutate(reporting_period = as.character(reporting_period) %>% str_remove("-..$") %>% as.factor())
         
     p1 <- ggplot(df, aes(x = reporting_period, y = exposure_average)) + 
-        geom_boxplot() +
         geom_jitter(aes(size = case_count), alpha = 0.5, width = 0.3) +
+        geom_boxplot(color = "red", fill = NA, outlier.shape = NA) +
         scale_y_continuous(labels = scales::label_percent(), limits = c(0,1)) + 
         scale_x_discrete(guide = guide_axis(n.dodge = 2)) + 
         scale_size_binned_area(labels = scales::label_comma()) +
@@ -83,6 +275,122 @@ letter_figure_1 <- function(Figure_Data_By_Center, Drugs_Labelled_By_Hospital_Da
 }
 
 @transform_pandas(
+    Output(rid="ri.vector.main.execute.219f1278-5ad7-4d83-810b-0e6b7168e23e"),
+    psm=Input(rid="ri.foundry.main.dataset.b25f82cf-ac77-43f6-80ed-ffdcd56b0b15")
+)
+model_att <- function(psm) {
+    m <- glm(late_antibiotic_exposure ~ target, data = psm, family = binomial())
+    print(summary(m))
+    print(exp(coef(m)))
+    print(exp(confint(m)))
+
+    m <- glm(hospital_mortality ~ target, data = psm, family = binomial())
+    print(summary(m))
+    print(exp(coef(m)))
+    print(exp(confint(m)))
+
+    m <- glm(long_imv ~ target, data = psm, family = binomial())
+    print(summary(m))
+    print(exp(coef(m)))
+    print(exp(confint(m)))
+
+    m <- glm(late_cdad ~ target, data = psm, family = binomial())
+    print(summary(m))
+    print(exp(coef(m)))
+    print(exp(confint(m)))
+
+    return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.efb4b5a1-fbcd-419b-94d5-01551495eb9d"),
+    Figure_Data_By_Center=Input(rid="ri.foundry.main.dataset.582aaae3-361a-459b-94dd-ba5fe47ee5b9")
+)
+library(patchwork)
+
+paper_figure_1 <- function(Figure_Data_By_Center) {
+
+    ## this builds the figure 1 for the publication
+    df <- Figure_Data_By_Center %>%
+        mutate(reporting_period = as.character(reporting_period) %>% str_remove("-..$") %>% as.factor())
+        
+    p1 <- ggplot(df, aes(x = reporting_period, y = exposure_average)) + 
+        geom_jitter(aes(size = case_count), alpha = 0.5, width = 0.3) +
+        geom_boxplot(color = "red", fill = NA, outlier.shape = NA) +
+        scale_y_continuous(labels = scales::label_percent(), limits = c(0,1)) + 
+        scale_x_discrete(guide = guide_axis(n.dodge = 2)) + 
+        scale_size_binned_area(labels = scales::label_comma()) +
+        theme_bw() + 
+        labs(x = "Month", y = "Admissions with EEUA", size = "Included Encounters")
+
+    #image: svg
+    svg(filename=graphicsFile, width=11, height=8, bg="white")
+    print(p1)
+
+    return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.16191937-4402-4324-aa16-5044fa97b6e1"),
+    Drugs_Labelled_By_Hospital_Day=Input(rid="ri.foundry.main.dataset.f9ae6e03-c975-4f18-8296-7a96c11aa177")
+)
+library(patchwork)
+
+paper_figure_2 <- function( Drugs_Labelled_By_Hospital_Day) {
+    df2 <- Drugs_Labelled_By_Hospital_Day %>%
+        mutate(drug_name = str_to_title(drug_name) %>%
+                            as_factor() %>% 
+                            fct_explicit_na() %>% 
+                            fct_lump_n(10, w = c) %>%
+                            fct_reorder(c), 
+                            hospital_day = as_factor(hospital_day)) %>%
+        group_by(hospital_day, drug_name) %>%
+            summarise(c = sum(c))
+
+    p2 <- ggplot(df2, aes(hospital_day, c, fill = drug_name)) + 
+        geom_bar(stat = 'identity') + 
+        scale_y_continuous(labels = scales::label_comma()) + 
+        scale_fill_brewer(palette="Set3") + 
+        theme_bw() +
+        labs(x = "Hospital Day", y = "Count of Daily Antibiotic Orders", fill = "Drug")
+
+    #image: svg
+    svg(filename=graphicsFile, width=11, height=8, bg="white")
+    print(p2)
+
+    return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.b25f82cf-ac77-43f6-80ed-ffdcd56b0b15"),
+    Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
+)
+library(MatchIt)
+library(lubridate)
+
+psm <- function(Final_Analysis_Cohort_With_Exclusions) {
+    options(width = 320)
+    df <- Final_Analysis_Cohort_With_Exclusions %>%
+        select(data_partner_id:reporting_period, target, early_imv:late_antibiotic_exposure, early_trauma_flag, early_major_procedure, early_vasopressor_use, late_cdad, primary_outcome) %>%
+        mutate(
+            data_partner_id = as_factor(data_partner_id), 
+            gender_concept_name = as_factor(gender_concept_name) %>% fct_explicit_na(),
+            reporting_period = as_factor(year(reporting_period) * 12 + month(reporting_period) - (2020*12+3)),
+            race_ethnicity = as_factor(race_ethnicity)
+        )
+
+    df <- df %>%
+        select(target, reporting_period, early_imv, early_ecmo, early_vasopressor_use, early_trauma_flag, early_major_procedure, race_ethnicity, age_at_covid, hospital_mortality, long_imv, late_cdad, late_antibiotic_exposure, CCI, obesity, smoker, data_partner_id, primary_outcome) %>%
+        drop_na()
+
+    m.out <- matchit(target ~ reporting_period + early_ecmo + early_imv + early_trauma_flag + early_vasopressor_use + early_major_procedure + race_ethnicity + s(age_at_covid) + obesity + smoker + s(CCI), data=df, distance='gam')
+
+    print(summary(m.out))
+
+    return(match.data(m.out, data=df))
+}
+
+@transform_pandas(
     Output(rid="ri.foundry.main.dataset.52ffcf1d-d564-409b-b53d-1eaaecc131f2"),
     Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
 )
@@ -90,7 +398,7 @@ library(gtsummary)
 library(labelled)
 
 publication_table1 <- function(Final_Analysis_Cohort_With_Exclusions) {
-
+    
     ## This builds the table1 for the publication
 
     part_a <- Final_Analysis_Cohort_With_Exclusions %>%
@@ -104,7 +412,7 @@ publication_table1 <- function(Final_Analysis_Cohort_With_Exclusions) {
         add_p()
 
     part_b <- Final_Analysis_Cohort_With_Exclusions %>%
-        select(target, total_length_of_stay, bmi, obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, wbc, early_ecmo, early_imv, hospital_mortality) %>%
+        select(target, total_length_of_stay, bmi, obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, wbc, early_ecmo, early_imv, early_vasopressor_use, early_trauma_flag, early_major_procedure, hospital_mortality, late_antibiotic_exposure, long_imv, late_cdad ) %>%
         mutate(
             target = as_factor(target) %>% fct_recode("No EEAU" = "0", "EEAU" = "1"),
             race_ethnicity = as_factor(race_ethnicity) %>% fct_infreq(),
@@ -121,7 +429,13 @@ publication_table1 <- function(Final_Analysis_Cohort_With_Exclusions) {
             exposure_days = "Days of Early Antibiotic Exposure",
             early_ecmo = 'ECMO On Hospital Day < 2',
             early_imv = 'IMV On Hospital Day < 2',
-            hospital_mortality = 'In Hospital Mortality', 
+            early_vasopressor_use = 'Vasopressor On Hospital Day < 2',
+            early_trauma_flag = 'Traumatic Diagnosis',
+            early_major_procedure = 'Major Surgical Procedure', 
+            hospital_mortality = 'In Hospital Mortality',
+            late_antibiotic_exposure = 'Late Antibiotic Exposure',
+            long_imv = "Prolonged IMV",
+            late_cdad = "Late CDAD",
             wbc = "Initial White Blood Cell Count (10^9/L)",
             pct_group = "Procalcitonin") %>%
         tbl_summary(by = target) %>%
@@ -148,17 +462,17 @@ regression_model2 <- function(Final_Analysis_Cohort_With_Exclusions) {
     options(scipen = 100)
     
     df <- Final_Analysis_Cohort_With_Exclusions %>%
-        select(target, age_at_covid, bmi,  obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, early_ecmo, early_imv, data_partner_id, gender_concept_name, reporting_period) %>%
+        select(target, age_at_covid, bmi,  obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, early_ecmo, early_imv, early_vasopressor_use, early_major_procedure, early_trauma_flag, data_partner_id, gender_concept_name, reporting_period) %>%
         filter(pct_group != "not measured") %>%
         mutate(
             data_partner_id = as_factor(data_partner_id), 
             gender_concept_name = as_factor(gender_concept_name) %>% fct_explicit_na(),
             reporting_period = as_factor(year(reporting_period) * 12 + month(reporting_period) - (2020*12+3)),
-            pct_group = as_factor(pct_group),
+            pct_group = as_factor(pct_group) %>% fct_relevel("low"),
             race_ethnicity = as_factor(race_ethnicity)
         )
 
-    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + pct_group + early_imv + early_ecmo + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
+    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + pct_group + early_imv + early_ecmo + early_vasopressor_use + early_trauma_flag + early_major_procedure + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
 
     print(summary(m))
 
@@ -179,7 +493,7 @@ regression_model_1 <- function(Final_Analysis_Cohort_With_Exclusions) {
     options(scipen = 100)
     
     df <- Final_Analysis_Cohort_With_Exclusions %>%
-        select(target, age_at_covid, bmi,  obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, early_ecmo, early_imv, data_partner_id, gender_concept_name, reporting_period) %>%
+        select(target, age_at_covid, bmi,  obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, early_ecmo, early_imv, early_vasopressor_use, early_major_procedure, gender_concept_name, reporting_period, early_trauma_flag, data_partner_id) %>%
         mutate(
             data_partner_id = as_factor(data_partner_id), 
             gender_concept_name = as_factor(gender_concept_name) %>% fct_explicit_na(),
@@ -188,7 +502,7 @@ regression_model_1 <- function(Final_Analysis_Cohort_With_Exclusions) {
             race_ethnicity = as_factor(race_ethnicity)
         )
 
-    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
+    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + early_vasopressor_use + early_trauma_flag + early_major_procedure + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
 
     print(summary(m))
 
@@ -204,13 +518,14 @@ regression_model_1 <- function(Final_Analysis_Cohort_With_Exclusions) {
 )
 library(lubridate)
 library(mgcv)
+
 regression_model_region_effect <- function(Final_Analysis_Cohort_With_Exclusions) {
     ## This is the regression model to evaluate the assocation of early IMV, early ECMO, and regional variations with EEAU
     
     options(scipen = 100)
     
     df <- Final_Analysis_Cohort_With_Exclusions %>%
-        select(target, age_at_covid, bmi,  obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, early_ecmo, early_imv, data_partner_id, gender_concept_name, reporting_period, region, division) %>%
+        select(target, age_at_covid, bmi,  obesity, sdoh2, race_ethnicity, CCI, exposure_days, smoker, pct_group, early_ecmo, early_imv, early_vasopressor_use, data_partner_id, early_major_procedure, early_trauma_flag, gender_concept_name, reporting_period, region, division) %>%
         mutate(
             data_partner_id = as_factor(data_partner_id), 
             region = as_factor(region) %>% fct_infreq(),
@@ -221,7 +536,7 @@ regression_model_region_effect <- function(Final_Analysis_Cohort_With_Exclusions
             race_ethnicity = as_factor(race_ethnicity)
         )
 
-    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + s(region, bs = 're') + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
+    m <- gam(target ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + early_vasopressor_use + early_trauma_flag + early_major_procedure + s(region, bs = 're') + s(data_partner_id, bs = 're') + s(CCI), data = df, family = "binomial", method = "REML")
 
     print(summary(m))
 
@@ -285,14 +600,14 @@ sensitivity_regression <- function(Sensitivity_Analysis) {
 
             print(glue("=== {outcome} > {threshold} "))
 
-            m <- gam(event ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + s(data_partner_id, bs = 're') + s(CCI), data = temp_df, family = "binomial", method = "REML")
+            m <- gam(event ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + early_imv + early_ecmo + early_vasopressor_use + s(data_partner_id, bs = 're') + s(CCI), data = temp_df, family = "binomial", method = "REML")
             print(summary(m))
 
             temp_df <- temp_df %>%
                 filter(pct_group != "not measured") %>%
                 mutate(pct_group = as_factor(pct_group))
 
-            m <- gam(event ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + pct_group + early_imv + early_ecmo + s(data_partner_id, bs = 're') + s(CCI), data = temp_df, family = "binomial", method = "REML")
+            m <- gam(event ~ s(age_at_covid) + gender_concept_name + s(reporting_period, bs = 're') + pct_group + early_imv + early_ecmo + early_vasopressor_use + s(data_partner_id, bs = 're') + s(CCI), data = temp_df, family = "binomial", method = "REML")
             print(summary(m))
             
         }
@@ -320,5 +635,65 @@ unnamed <- function(Figure_Data_By_Region) {
     print(p1)
 
     return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.f9a98aed-b076-41bb-83c1-e4520ac3f948"),
+    iptw_test_preds=Input(rid="ri.foundry.main.dataset.49835047-d81c-4200-8d14-44faec86091a")
+)
+unnamed_3 <- function(iptw_test_preds) {
+    df <- iptw_test_preds %>%
+        mutate(pred = plogis(pred), group = cut_interval(pred, 10)) %>%
+        group_by(group) %>%
+        summarise(n = n(), r = mean(target))
+}
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.823dd5b2-cf53-41c1-afea-7e6c618cc836"),
+    iptw_test_preds=Input(rid="ri.foundry.main.dataset.49835047-d81c-4200-8d14-44faec86091a")
+)
+unnamed_4 <- function(iptw_test_preds) {
+        df <- iptw_test_preds %>%
+        mutate(pred = plogis(pred),
+            weight = target / pred + (1 - target) / ( 1 - pred))
+
+    df <- df %>% mutate(weight = ifelse(weight > 10, 10, weight))
+
+    m <- glm(long_imv ~ target, data=df, family=binomial(),  weights=weight)
+
+    print(m)
+    print(summary(m))
+
+    m <- glm(late_antibiotic_exposure ~ target, data=df, family=binomial(),  weights=weight)
+
+    print(m)
+    print(summary(m))
+
+    m <- glm(hospital_mortality ~ target, data=df, family=binomial(),  weights=weight)
+
+    print(m)
+    print(summary(m))
+
+    return(NULL)
+}
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.e0401515-2b29-4f86-84a4-8c7b9ea637a9"),
+    iptw_test_preds=Input(rid="ri.foundry.main.dataset.49835047-d81c-4200-8d14-44faec86091a")
+)
+weights <- function(iptw_test_preds) {
+    df <- iptw_test_preds %>%
+        mutate(pred = plogis(pred),
+            weight = target / pred + (1 - target) / ( 1 - pred))
+
+    df <- df %>% mutate(weight = ifelse(weight > 10, 10, weight))
+
+    p1 <- ggplot() +
+        geom_histogram(aes(x = weight), bins=30, data = df %>% filter(target == 1)) + 
+        geom_histogram(aes(x = weight, y = -..count..), bins=30, data = df %>% filter(target == 0))
+
+    print(p1)
+
+    return(df) 
 }
 
