@@ -5,11 +5,11 @@ import pandas as pd
     Output(rid="ri.foundry.main.dataset.b47d8fe1-8c03-4e38-9b24-24a327b6d8fd"),
     Base_Cohort=Input(rid="ri.foundry.main.dataset.f80c5b44-af52-42a2-b276-48c355fe97b4")
 )
-# For each row in the base_cohort, add a row to the table for admission day (day 0) through hospital day 5 (admission day + 5)
+# For each row in the base_cohort, add a row to the table for admission day (day 0) through hospital day 21 (admission day + 5)
 # This table will be used to link drug admins and labs to a specific hospital day
 def Cohort_Hospitalization_Dates(Base_Cohort):
     df = Base_Cohort.select("person_id", "first_COVID_hospitalization_start_date")
-    df = df.withColumn("period_end", F.date_add(F.col('first_COVID_hospitalization_start_date'), 6))
+    df = df.withColumn("period_end", F.date_add(F.col('first_COVID_hospitalization_start_date'), 21))
     df = df.withColumn("date", F.sequence(F.col('first_COVID_hospitalization_start_date'), F.col('period_end')))
     df = df.withColumn("date", F.explode(F.col("date")))
     df = df.withColumn("hospital_day", F.datediff(F.col('date'), F.col('first_COVID_hospitalization_start_date')))

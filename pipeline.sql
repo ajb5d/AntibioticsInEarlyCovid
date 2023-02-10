@@ -213,6 +213,17 @@ SELECT
         -- This is a manual list of drugs that fell through the critera above but are typically enteral
         WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1734104,1738521,1707164,1742253,997881,35861919,1742287,35151057) THEN true
     ELSE false END AS is_enteral
+    ,  CASE
+        -- The route is directly mapped
+        WHEN is_enteral THEN 1 
+        WHEN is_parenteral THEN 1
+        -- Route is not mapped, but >90% of the time this drug_concept_id has an enteral route
+        WHEN Drugs_Common_Route.enteral_rate > 0.9 THEN 2
+        -- Drug name looks like a enteral product
+        WHEN LOWER(drug_concept_name) LIKE '%oral%' OR LOWER(drug_concept_name) like '%tablet%' OR LOWER(drug_concept_name) LIKE '%capsule%' THEN 3
+        -- This is a manual list of drugs that fell through the critera above but are typically enteral
+        WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1734104,1738521,1707164,1742253,997881,35861919,1742287,35151057) THEN 4
+    ELSE 5 END AS is_enteral_strategy
     , CASE
         -- The route is directly mapped
         WHEN is_parenteral THEN true
@@ -224,6 +235,17 @@ SELECT
         -- same as above but parenteral
         WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1736887,1836241,46274210,36789702,45774861, 46221507) THEN true
     ELSE false END AS is_parenteral
+    , CASE
+        -- The route is directly mapped
+        WHEN is_parenteral THEN 1
+        WHEN is_enteral THEN 1
+        -- Route is not mapped, but >90% of the time this drug is given parenterally
+        WHEN Drugs_Common_Route.parenteral_rate > 0.9 THEN 2
+        -- Drug name looks like a parenteral product
+        WHEN LOWER(drug_concept_name) LIKE '%injectable%' OR LOWER(drug_concept_name) like '%injection%' OR LOWER(drug_concept_name) like '%syringe%' THEN 3
+        -- same as above but parenteral
+        WHEN Early_Antibiotic_Exposures.drug_concept_id IN (1736887,1836241,46274210,36789702,45774861, 46221507) THEN 4
+    ELSE 5 END AS is_parenteral_strategy
 FROM Early_Antibiotic_Exposures
 LEFT JOIN Concept_Routes_of_Interest ON
     Early_Antibiotic_Exposures.route_concept_id = Concept_Routes_of_Interest.concept_id
@@ -297,6 +319,7 @@ SELECT
     data_partner_id
     , reporting_period
     , CAST(COUNT(*) AS INT) AS case_count
+    , CAST(SUM(target) AS INT) AS exposure_count
     , AVG(target) AS exposure_average
 FROM Final_Analysis_Cohort_With_Exclusions
 GROUP BY 
@@ -580,6 +603,77 @@ GROUP BY condition_concept_id
 ORDER BY COUNT(*) DESC
 
 @transform_pandas(
+    Output(rid="ri.foundry.main.dataset.eb8af3cc-2f52-46a5-8d20-ca7df64df43b"),
+    Exposures_By_Day=Input(rid="ri.foundry.main.dataset.781ab12e-d7db-4563-bd9e-8894a5b5590a")
+)
+WITH lagged_exposures AS (
+    SELECT
+        person_id
+        , hospital_day
+        , LAG(hospital_day, 1) OVER (PARTITION BY person_id ORDER BY hospital_day) AS previous_hospital_day
+    FROM Exposures_By_Day
+)
+
+, flagged_episodes AS (
+    SELECT
+        person_id
+        , hospital_day
+        , previous_hospital_day
+        , CASE
+            WHEN previous_hospital_day IS NULL THEN 1
+            WHEN previous_hospital_day < hospital_day - 2 THEN 1 
+        ELSE 0 END AS new_course_flag
+    FROM
+        lagged_exposures
+)
+
+, episodes_raw AS (
+    SELECT
+        person_id
+        , hospital_day
+        , SUM(new_course_flag) OVER (PARTITION BY person_id ORDER BY hospital_day) AS course_id
+    FROM
+        flagged_episodes
+)
+
+, episodes AS (
+    SELECT
+        person_id
+        , course_id
+        , MIN(hospital_day) AS start_day
+        , MAX(hospital_day) AS end_day
+        , MAX(hospital_day) - MIN(hospital_day) AS duration
+    FROM
+        episodes_raw
+    GROUP BY person_id, course_id
+)
+
+SELECT
+    person_id
+    , duration
+FROM
+    episodes
+WHERE
+    course_id = 1
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.68e6e987-d359-4ca2-a60d-737f9441e8bc"),
+    Data_Partner_Statistics=Input(rid="ri.foundry.main.dataset.b8883699-ff6d-404c-9b1d-bb05eafe80e1"),
+    Final_Analysis_Cohort=Input(rid="ri.foundry.main.dataset.b6368e45-75aa-407a-aaaf-e4a9724ae9ac"),
+    course_duration_all_subjects=Input(rid="ri.foundry.main.dataset.eb8af3cc-2f52-46a5-8d20-ca7df64df43b")
+)
+SELECT
+    person_id
+    , outcome_iv_day4
+    , duration
+FROM course_duration_all_subjects
+INNER JOIN Final_Analysis_Cohort USING (person_id)
+WHERE
+    reporting_period >= '2020-03-01'
+    AND reporting_period < '2022-07-01'
+    AND data_partner_id IN (SELECT data_partner_id FROM Data_Partner_Statistics WHERE record_count > 500)
+
+@transform_pandas(
     Output(rid="ri.vector.main.execute.63730b1b-1bc4-4b78-aca1-b79c67626458"),
     Data_Partner_Statistics=Input(rid="ri.foundry.main.dataset.b8883699-ff6d-404c-9b1d-bb05eafe80e1")
 )
@@ -668,6 +762,37 @@ FROM early_vasopressor_exposures
 WHERE
     hospital_day < 2
 GROUP BY person_id
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.aa3eba56-9a73-4647-8e9e-ef0eda3ebc4d"),
+    Drugs_Common_Route=Input(rid="ri.foundry.main.dataset.2e4c4495-2185-4477-8b49-79242f595aba"),
+    concept=Input(rid="ri.foundry.main.dataset.5cb3c4a3-327a-47bf-a8bf-daf0cafe6772")
+)
+SELECT
+    Drugs_Common_Route.drug_concept_id
+    , occurance_count
+    , enteral_rate
+    , parenteral_rate
+    , concept.concept_name
+FROM Drugs_Common_Route
+LEFT JOIN concept ON concept.concept_id = Drugs_Common_Route.drug_concept_id
+ORDER BY occurance_count DESC
+
+@transform_pandas(
+    Output(rid="ri.foundry.main.dataset.5cebc675-a49d-4cfd-b186-f15061b0a323"),
+    Final_Analysis_Cohort_With_Exclusions=Input(rid="ri.foundry.main.dataset.9cad2abe-8986-4105-996b-fd7d15040eb9")
+)
+SELECT
+    reporting_period
+    , COUNT(*) AS encounter_count
+    , SUM(early_imv) AS early_imv_count
+    , SUM(early_ecmo) AS early_ecmo_count
+    , SUM(early_trauma_flag) AS early_trauma_dx_count
+    , SUM(early_major_procedure) AS early_major_procedure_count
+    , SUM(early_vasopressor_use) AS early_vasopressor_use_count
+    , SUM(target) AS target_count
+FROM Final_Analysis_Cohort_With_Exclusions
+GROUP BY reporting_period
 
 @transform_pandas(
     Output(rid="ri.foundry.main.dataset.ed505bad-5610-4e1f-911e-7ebb308b9c9f"),
@@ -819,6 +944,24 @@ LEFT JOIN Base_Cohort USING (person_id)
 LEFT JOIN concept ON condition_concept_id = concept.concept_id
 GROUP BY condition_concept_id
 ORDER BY COUNT(*) DESC
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.5d259106-d54a-4751-84da-cb6df8312010"),
+    Early_Antibiotic_Exposures_Mapped_to_Routes=Input(rid="ri.foundry.main.dataset.0d60b0bf-2156-4b34-a4b3-6082f382e1c2")
+)
+SELECT
+    SUM(CASE WHEN is_parenteral_strategy = 4 OR is_enteral_strategy = 4 THEN 1 ELSE 0 END) / COUNT(*)
+    , SUM(CASE WHEN is_parenteral_strategy <= 4 OR is_enteral_strategy <= 4 THEN 1 ELSE 0 END) / COUNT(*)
+FROM Early_Antibiotic_Exposures_Mapped_to_Routes
+
+@transform_pandas(
+    Output(rid="ri.vector.main.execute.3457df1e-1b74-41a9-be82-b204013231fb"),
+    Early_Antibiotic_Exposures_Mapped_to_Routes=Input(rid="ri.foundry.main.dataset.0d60b0bf-2156-4b34-a4b3-6082f382e1c2")
+)
+SELECT *
+FROM Early_Antibiotic_Exposures_Mapped_to_Routes
+WHERE
+    drug_concept_name = 'ampicillin'
 
 @transform_pandas(
     Output(rid="ri.foundry.main.dataset.16cb2b8d-b1b6-480b-83b7-31a5bba5f3af"),
